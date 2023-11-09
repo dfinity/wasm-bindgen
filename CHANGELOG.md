@@ -1,9 +1,14 @@
 # `wasm-bindgen` Change Log
 --------------------------------------------------------------------------------
 
-## [Unreleased](https://github.com/rustwasm/wasm-bindgen/compare/0.2.87...main)
+## [0.2.88](https://github.com/rustwasm/wasm-bindgen/compare/0.2.87...0.2.88)
+
+Released 2023-11-01
 
 ### Added
+
+* Add bindings for `RTCRtpTransceiverInit.sendEncodings`.
+  [#3642](https://github.com/rustwasm/wasm-bindgen/pull/3642)
 
 * Add bindings for the Web Locks API to `web-sys`.
   [#3604](https://github.com/rustwasm/wasm-bindgen/pull/3604)
@@ -60,6 +65,13 @@
 * Implement `TryFrom<JsValue>` for exported Rust types and strings.
   [#3554](https://github.com/rustwasm/wasm-bindgen/pull/3554)
 
+* Handle the `#[ignore = "reason"]` attribute with the `wasm_bindgen_test`
+  proc-macro and accept the `--include-ignored` flag with `wasm-bindgen-test-runner`.
+  [#3644](https://github.com/rustwasm/wasm-bindgen/pull/3644)
+
+* Added missing additions to the Notification API.
+  [#3667](https://github.com/rustwasm/wasm-bindgen/pull/3667)
+
 ### Changed
 
 * Updated the WebGPU WebIDL.
@@ -101,6 +113,13 @@
   as normal exceptions rather than as rejected promises.
   [#3611](https://github.com/rustwasm/wasm-bindgen/pull/3611)
 
+* Improved TypeScript bindings to accurately reference Rust enum types in function signatures,
+  enhancing type safety and compatibility.
+  [#3647](https://github.com/rustwasm/wasm-bindgen/pull/3647)
+
+* Throw an error on enum name collisions, previously only one enum would be emitted.
+  [#3669](https://github.com/rustwasm/wasm-bindgen/pull/3669)
+
 ### Fixed
 
 * Fixed `wasm_bindgen` macro to handle raw identifiers in field names.
@@ -132,10 +151,19 @@
 * Fix bug with function arguments coming from `macro_rules!`.
   [#3625](https://github.com/rustwasm/wasm-bindgen/pull/3625)
 
+* Fix some calls to `free()` missing alignment.
+  [#3639](https://github.com/rustwasm/wasm-bindgen/pull/3639)
+
+* Fix wrong ABI for raw pointers.
+  [#3655](https://github.com/rustwasm/wasm-bindgen/pull/3655)
+
 ### Removed
 
 * Removed `ReadableStreamByobReader::read_with_u8_array()` because it doesn't work with Wasm.
   [#3582](https://github.com/rustwasm/wasm-bindgen/pull/3582)
+
+* Removed `GetNotificationOptions`, `NotificationBehavior` and `Notification.get()` because
+  they don't exist anymore.
 
 ## [0.2.87](https://github.com/rustwasm/wasm-bindgen/compare/0.2.86...0.2.87)
 

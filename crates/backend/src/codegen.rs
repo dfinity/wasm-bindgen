@@ -1382,6 +1382,9 @@ impl<'a> ToTokens for DescribeImport<'a> {
 impl ToTokens for ast::Enum {
     fn to_tokens(&self, into: &mut TokenStream) {
         let enum_name = &self.rust_name;
+        let name_str = self.js_name.to_string();
+        let name_len = name_str.len() as u32;
+        let name_chars = name_str.chars().map(|c| c as u32);
         let hole = &self.hole;
         let cast_clauses = self.variants.iter().map(|variant| {
             let variant_name = &variant.name;
@@ -1433,6 +1436,8 @@ impl ToTokens for ast::Enum {
                 fn describe() {
                     use #wasm_bindgen::describe::*;
                     inform(ENUM);
+                    inform(#name_len);
+                    #(inform(#name_chars);)*
                     inform(#hole);
                 }
             }
@@ -1451,7 +1456,7 @@ impl ToTokens for ast::Enum {
                 type Error = #wasm_bindgen::JsValue;
 
                 fn try_from(value: #wasm_bindgen::JsValue)
-                    -> #wasm_bindgen::__rt::std::result::Result<Self, Self::Error> {
+                    -> #wasm_bindgen::__rt::std::result::Result<Self, <#enum_name as #wasm_bindgen::__rt::core::convert::TryFrom<JsValue>>::Error> {
                     let js = f64::try_from(&value)? as u32;
 
                     #wasm_bindgen::__rt::std::result::Result::Ok(
