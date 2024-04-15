@@ -195,6 +195,47 @@ pub unsafe fn __wbindgen_copy_to_typed_array(ptr: *const u8, len: usize, idx: u3
     unimplemented!("__wbindgen_copy_to_typed_array")
 }
 
+pub unsafe fn __wbindgen_uint8_array_new(ptr: *mut u8, len: usize) -> u32 {
+    unimplemented!("__wbindgen_uint8_array_new")
+}
+pub unsafe fn __wbindgen_uint8_clamped_array_new(ptr: *mut u8, len: usize) -> u32 {
+    unimplemented!("__wbindgen_uint8_clamped_array_new")
+}
+pub unsafe fn __wbindgen_uint16_array_new(ptr: *mut u16, len: usize) -> u32 {
+    unimplemented!("__wbindgen_uint16_array_new")
+}
+pub unsafe fn __wbindgen_uint32_array_new(ptr: *mut u32, len: usize) -> u32 {
+    unimplemented!("__wbindgen_uint32_array_new")
+}
+pub unsafe fn __wbindgen_biguint64_array_new(ptr: *mut u64, len: usize) -> u32 {
+    unimplemented!("__wbindgen_biguint64_array_new")
+}
+pub unsafe fn __wbindgen_int8_array_new(ptr: *mut i8, len: usize) -> u32 {
+    unimplemented!("__wbindgen_int8_array_new")
+}
+pub unsafe fn __wbindgen_int16_array_new(ptr: *mut i16, len: usize) -> u32 {
+    unimplemented!("__wbindgen_int16_array_new")
+}
+pub unsafe fn __wbindgen_int32_array_new(ptr: *mut i32, len: usize) -> u32 {
+    unimplemented!("__wbindgen_int32_array_new")
+}
+pub unsafe fn __wbindgen_bigint64_array_new(ptr: *mut i64, len: usize) -> u32 {
+    unimplemented!("__wbindgen_bigint64_array_new")
+}
+pub unsafe fn __wbindgen_float32_array_new(ptr: *mut f32, len: usize) -> u32 {
+    unimplemented!("__wbindgen_float32_array_new")
+}
+pub unsafe fn __wbindgen_float64_array_new(ptr: *mut f64, len: usize) -> u32 {
+    unimplemented!("__wbindgen_float64_array_new")
+}
+
+pub unsafe fn __wbindgen_array_new() -> u32 {
+    unimplemented!("__wbindgen_array_new")
+}
+pub unsafe fn __wbindgen_array_push(array: u32, value: u32) -> () {
+    unimplemented!("__wbindgen_array_push")
+}
+
 pub unsafe fn __wbindgen_not(idx: u32) -> u32 {
     unimplemented!("__wbindgen_not")
 }

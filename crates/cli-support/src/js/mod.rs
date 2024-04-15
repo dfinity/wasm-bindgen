@@ -1768,25 +1768,6 @@ impl<'a> Context<'a> {
         self.memview("Float64", memory)
     }
 
-    fn memview_function(&mut self, t: VectorKind, memory: MemoryId) -> MemView {
-        match t {
-            VectorKind::String => self.expose_uint8_memory(memory),
-            VectorKind::I8 => self.expose_int8_memory(memory),
-            VectorKind::U8 => self.expose_uint8_memory(memory),
-            VectorKind::ClampedU8 => self.expose_clamped_uint8_memory(memory),
-            VectorKind::I16 => self.expose_int16_memory(memory),
-            VectorKind::U16 => self.expose_uint16_memory(memory),
-            VectorKind::I32 => self.expose_int32_memory(memory),
-            VectorKind::U32 => self.expose_uint32_memory(memory),
-            VectorKind::I64 => self.expose_int64_memory(memory),
-            VectorKind::U64 => self.expose_uint64_memory(memory),
-            VectorKind::F32 => self.expose_f32_memory(memory),
-            VectorKind::F64 => self.expose_f64_memory(memory),
-            VectorKind::Externref => self.expose_uint32_memory(memory),
-            VectorKind::NamedExternref(_) => self.expose_uint32_memory(memory),
-        }
-    }
-
     fn memview(&mut self, kind: &'static str, memory: walrus::MemoryId) -> MemView {
         let view = self.memview_memory(kind, memory);
         if !self.should_write_global(view.name.clone()) {
@@ -2100,6 +2081,32 @@ impl<'a> Context<'a> {
                 return x === undefined || x === null;
             }
         ",
+        );
+    }
+
+    fn expose_assert_non_null(&mut self) {
+        if !self.should_write_global("assert_non_null") {
+            return;
+        }
+        self.global(
+            "
+            function _assertNonNull(n) {
+                if (typeof(n) !== 'number' || n === 0) throw new Error(`expected a number argument that is not 0, found ${n}`);
+            }
+            ",
+        );
+    }
+
+    fn expose_assert_char(&mut self) {
+        if !self.should_write_global("assert_char") {
+            return;
+        }
+        self.global(
+            "
+            function _assertChar(c) {
+                if (typeof(c) === 'number' && (c >= 0x110000 || (c >= 0xD800 && c < 0xE000))) throw new Error(`expected a valid Unicode scalar value, found ${c}`);
+            }
+            ",
         );
     }
 
@@ -3568,6 +3575,31 @@ impl<'a> Context<'a> {
                     src = args[0],
                     dst = args[1]
                 )
+            }
+
+            Intrinsic::Uint8ArrayNew
+            | Intrinsic::Uint8ClampedArrayNew
+            | Intrinsic::Uint16ArrayNew
+            | Intrinsic::Uint32ArrayNew
+            | Intrinsic::BigUint64ArrayNew
+            | Intrinsic::Int8ArrayNew
+            | Intrinsic::Int16ArrayNew
+            | Intrinsic::Int32ArrayNew
+            | Intrinsic::BigInt64ArrayNew
+            | Intrinsic::Float32ArrayNew
+            | Intrinsic::Float64ArrayNew => {
+                assert_eq!(args.len(), 1);
+                args[0].clone()
+            }
+
+            Intrinsic::ArrayNew => {
+                assert_eq!(args.len(), 0);
+                "[]".to_string()
+            }
+
+            Intrinsic::ArrayPush => {
+                assert_eq!(args.len(), 2);
+                format!("{}.push({})", args[0], args[1])
             }
 
             Intrinsic::ExternrefHeapLiveCount => {

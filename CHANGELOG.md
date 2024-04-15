@@ -5,11 +5,65 @@
 
 ### Added
 
+* Added support for arbitrary expressions when using `#[wasm_bindgen(typescript_custom_section)]`.
+  [#3901](https://github.com/rustwasm/wasm-bindgen/pull/3901)
+
+* Implement `From<NonNull<T>>` for `JsValue`.
+  [#3877](https://github.com/rustwasm/wasm-bindgen/pull/3877)
+
+* Add method `copy_within` for TypedArray, add methods `find_last`,`find_last_index` for Array.
+  [#3888](https://github.com/rustwasm/wasm-bindgen/pull/3888)
+
+* Added support for returning `Vec`s from async functions.
+  [#3630](https://github.com/rustwasm/wasm-bindgen/pull/3630)
+
+### Changed
+
+* Stabilize Web Share API.
+  [#3882](https://github.com/rustwasm/wasm-bindgen/pull/3882)
+
+* Generate JS bindings for WebIDL dictionary setters instead of using `Reflect`. This increases the size of the Web API bindings but should be more performant. Also, importing getters/setters from JS now supports specifying the JS attribute name as a string, e.g. `#[wasm_bindgen(method, setter = "x-cdm-codecs")]`.
+  [#3898](https://github.com/rustwasm/wasm-bindgen/pull/3898)
+
+### Fixed
+
+* Copy port from headless test server when using `WASM_BINDGEN_TEST_ADDRESS`.
+  [#3873](https://github.com/rustwasm/wasm-bindgen/pull/3873)
+
+* Fix `catch` not being thread-safe.
+  [#3879](https://github.com/rustwasm/wasm-bindgen/pull/3879)
+
+--------------------------------------------------------------------------------
+
+## [0.2.92](https://github.com/rustwasm/wasm-bindgen/compare/0.2.91...0.2.92)
+
+Released 2024-03-04
+
+### Added
+
 * Add bindings for `RTCPeerConnectionIceErrorEvent`.
   [#3835](https://github.com/rustwasm/wasm-bindgen/pull/3835)
 
 * Add bindings for `CanvasState.reset()`, affecting `CanvasRenderingContext2D` and `OffscreenCanvasRenderingContext2D`.
   [#3844](https://github.com/rustwasm/wasm-bindgen/pull/3844)
+
+* Add `TryFrom` implementations for `Number`, that allow losslessly converting from 64- and 128-bits numbers.
+  [#3847](https://github.com/rustwasm/wasm-bindgen/pull/3847)
+
+* Add support for `Option<*const T>`, `Option<*mut T>` and `NonNull<T>`.
+  [#3852](https://github.com/rustwasm/wasm-bindgen/pull/3852)
+  [#3857](https://github.com/rustwasm/wasm-bindgen/pull/3857)
+
+* Allow overriding the URL used for headless tests by setting `WASM_BINDGEN_TEST_ADDRESS`.
+  [#3861](https://github.com/rustwasm/wasm-bindgen/pull/3861)
+
+### Fixed
+
+* Make .wasm output deterministic when using `--reference-types`.
+  [#3851](https://github.com/rustwasm/wasm-bindgen/pull/3851)
+
+* Don't allow invalid Unicode scalar values in `char`.
+  [#3866](https://github.com/rustwasm/wasm-bindgen/pull/3866)
 
 --------------------------------------------------------------------------------
 
@@ -229,7 +283,7 @@ Released 2023-11-01
   It was also automatically changed for `IdbFileHandle`, which is deprecated.
   [#3537](https://github.com/rustwasm/wasm-bindgen/pull/3537)
 
-* Changed behavior when compiling to `wasm32-wasi` to match `wasm32-emscripten` and 
+* Changed behavior when compiling to `wasm32-wasi` to match `wasm32-emscripten` and
   non-WASM targets, generating a stub that panics when called rather than a wasm-
   bindgen placeholder.
   [#3233](https://github.com/rustwasm/wasm-bindgen/pull/3233)
