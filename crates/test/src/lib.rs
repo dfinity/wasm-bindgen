@@ -12,12 +12,21 @@ pub use wasm_bindgen_test_macro::wasm_bindgen_test;
 #[global_allocator]
 static A: gg_alloc::GgAlloc<std::alloc::System> = gg_alloc::GgAlloc::new(std::alloc::System);
 
+/// Helper macro which acts like `println!` only routes to `console.error`
+/// instead.
+#[macro_export]
+macro_rules! console_error {
+    ($($arg:tt)*) => (
+        $crate::__rt::console_error(&format_args!($($arg)*))
+    )
+}
+
 /// Helper macro which acts like `println!` only routes to `console.log`
 /// instead.
 #[macro_export]
 macro_rules! console_log {
     ($($arg:tt)*) => (
-        $crate::__rt::log(&format_args!($($arg)*))
+        $crate::__rt::console_log(&format_args!($($arg)*))
     )
 }
 
@@ -76,8 +85,20 @@ macro_rules! wasm_bindgen_test_configure {
         pub static __WBG_TEST_RUN_IN_SERVICE_WORKER: [u8; 1] = [0x04];
         $crate::wasm_bindgen_test_configure!($($others)*);
     );
+    (run_in_node_experimental $($others:tt)*) => (
+        #[link_section = "__wasm_bindgen_test_unstable"]
+        #[cfg(target_arch = "wasm32")]
+        pub static __WBG_TEST_run_in_node_experimental: [u8; 1] = [0x05];
+        $crate::wasm_bindgen_test_configure!($($others)*);
+    );
     () => ()
 }
 
 #[path = "rt/mod.rs"]
 pub mod __rt;
+
+// Make this only available to wasm32 so that we don't
+// import minicov on other archs.
+// That way you can use normal cargo test without minicov
+#[cfg(target_arch = "wasm32")]
+mod coverage;

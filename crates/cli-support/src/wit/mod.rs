@@ -2,7 +2,7 @@ use crate::decode::LocalModule;
 use crate::descriptor::{Descriptor, Function};
 use crate::descriptors::WasmBindgenDescriptorsSection;
 use crate::intrinsic::Intrinsic;
-use crate::{decode, PLACEHOLDER_MODULE};
+use crate::{decode, Bindgen, PLACEHOLDER_MODULE};
 use anyhow::{anyhow, bail, Error};
 use std::collections::{HashMap, HashSet};
 use std::str;
@@ -36,6 +36,7 @@ struct Context<'a> {
     externref_enabled: bool,
     thread_count: Option<ThreadCount>,
     support_start: bool,
+    linked_modules: bool,
 }
 
 struct InstructionBuilder<'a, 'b> {
@@ -47,11 +48,10 @@ struct InstructionBuilder<'a, 'b> {
 }
 
 pub fn process(
+    bindgen: &mut Bindgen,
     module: &mut Module,
     programs: Vec<decode::Program>,
-    externref_enabled: bool,
     thread_count: Option<ThreadCount>,
-    support_start: bool,
 ) -> Result<(NonstandardWitSectionId, WasmBindgenAuxId), Error> {
     let mut cx = Context {
         adapters: Default::default(),
@@ -65,9 +65,10 @@ pub fn process(
         memory: wasm_bindgen_wasm_conventions::get_memory(module).ok(),
         module,
         start_found: false,
-        externref_enabled,
+        externref_enabled: bindgen.externref,
         thread_count,
-        support_start,
+        support_start: bindgen.emit_start,
+        linked_modules: bindgen.split_linked_modules,
     };
     cx.init()?;
 
@@ -90,8 +91,7 @@ pub fn process(
 
 impl<'a> Context<'a> {
     fn init(&mut self) -> Result<(), Error> {
-        self.aux.shadow_stack_pointer =
-            wasm_bindgen_wasm_conventions::get_shadow_stack_pointer(self.module);
+        self.aux.stack_pointer = wasm_bindgen_wasm_conventions::get_stack_pointer(self.module);
 
         // Make a map from string name to ids of all exports
         for export in self.module.exports.iter() {
@@ -393,7 +393,10 @@ impl<'a> Context<'a> {
             linked_modules,
         } = program;
 
-        for module in &local_modules {
+        for module in local_modules
+            .iter()
+            .filter(|module| self.linked_modules || !module.linked_module)
+        {
             // All local modules we find should be unique, but the same module
             // may have showed up in a few different blocks. If that's the case
             // all the same identifiers should have the same contents.
@@ -568,6 +571,7 @@ impl<'a> Context<'a> {
         match &import.kind {
             decode::ImportKind::Function(f) => self.import_function(&import, f),
             decode::ImportKind::Static(s) => self.import_static(&import, s),
+            decode::ImportKind::String(s) => self.import_string(s),
             decode::ImportKind::Type(t) => self.import_type(&import, t),
             decode::ImportKind::Enum(_) => Ok(()),
         }
@@ -801,6 +805,32 @@ impl<'a> Context<'a> {
         // imported item.
         let import = self.determine_import(import, static_.name)?;
         self.aux.import_map.insert(id, AuxImport::Static(import));
+        Ok(())
+    }
+
+    fn import_string(&mut self, string: &decode::ImportString<'_>) -> Result<(), Error> {
+        let (import_id, _id) = match self.function_imports.get(string.shim) {
+            Some(pair) => *pair,
+            None => return Ok(()),
+        };
+
+        // Register the signature of this imported shim
+        let id = self.import_adapter(
+            import_id,
+            Function {
+                arguments: Vec::new(),
+                shim_idx: 0,
+                ret: Descriptor::Externref,
+                inner_ret: None,
+            },
+            AdapterJsImportKind::Normal,
+        )?;
+
+        // And then save off that this function is is an instanceof shim for an
+        // imported item.
+        self.aux
+            .import_map
+            .insert(id, AuxImport::String(string.string.to_owned()));
         Ok(())
     }
 

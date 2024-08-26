@@ -15,6 +15,7 @@ use anyhow::{anyhow, bail, Context};
 use log::error;
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::thread;
 use wasm_bindgen_cli_support::Bindgen;
@@ -27,7 +28,7 @@ mod shell;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum TestMode {
-    Node,
+    Node { no_modules: bool },
     Deno,
     Browser { no_modules: bool },
     DedicatedWorker { no_modules: bool },
@@ -45,9 +46,9 @@ impl TestMode {
 
     fn no_modules(self) -> bool {
         match self {
-            Self::Node => true,
             Self::Deno => true,
             Self::Browser { no_modules }
+            | Self::Node { no_modules }
             | Self::DedicatedWorker { no_modules }
             | Self::SharedWorker { no_modules }
             | Self::ServiceWorker { no_modules } => no_modules,
@@ -150,16 +151,19 @@ fn main() -> anyhow::Result<()> {
         Some(section) if section.data.contains(&0x04) => TestMode::ServiceWorker {
             no_modules: std::env::var("WASM_BINDGEN_USE_NO_MODULE").is_ok(),
         },
+        Some(section) if section.data.contains(&0x05) => TestMode::Node {
+            no_modules: std::env::var("WASM_BINDGEN_USE_NO_MODULE").is_ok(),
+        },
         Some(_) => bail!("invalid __wasm_bingen_test_unstable value"),
         None if std::env::var("WASM_BINDGEN_USE_DENO").is_ok() => TestMode::Deno,
-        None => TestMode::Node,
+        None => TestMode::Node { no_modules: true },
     };
 
     let headless = env::var("NO_HEADLESS").is_err();
     let debug = env::var("WASM_BINDGEN_NO_DEBUG").is_err();
 
     // Gracefully handle requests to execute only node or only web tests.
-    let node = test_mode == TestMode::Node;
+    let node = matches!(test_mode, TestMode::Node { .. });
 
     if env::var_os("WASM_BINDGEN_TEST_ONLY_NODE").is_some() && !node {
         println!(
@@ -200,7 +204,8 @@ fn main() -> anyhow::Result<()> {
     shell.status("Executing bindgen...");
     let mut b = Bindgen::new();
     match test_mode {
-        TestMode::Node => b.nodejs(true)?,
+        TestMode::Node { no_modules: true } => b.nodejs(true)?,
+        TestMode::Node { no_modules: false } => b.nodejs_module(true)?,
         TestMode::Deno => b.deno(true)?,
         TestMode::Browser { .. }
         | TestMode::DedicatedWorker { .. }
@@ -218,6 +223,8 @@ fn main() -> anyhow::Result<()> {
         b.split_linked_modules(true);
     }
 
+    let coverage = coverage_args(&tmpdir);
+
     b.debug(debug)
         .input_module(module, wasm)
         .keep_debug(false)
@@ -229,7 +236,9 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_> = args.collect();
 
     match test_mode {
-        TestMode::Node => node::execute(module, &tmpdir, &args, &tests)?,
+        TestMode::Node { no_modules } => {
+            node::execute(module, &tmpdir, &args, &tests, !no_modules)?
+        }
         TestMode::Deno => deno::execute(module, &tmpdir, &args, &tests)?,
         TestMode::Browser { .. }
         | TestMode::DedicatedWorker { .. }
@@ -250,6 +259,7 @@ fn main() -> anyhow::Result<()> {
                 &tests,
                 test_mode,
                 std::env::var("WASM_BINDGEN_TEST_NO_ORIGIN_ISOLATION").is_err(),
+                coverage,
             )
             .context("failed to spawn server")?;
             let addr = srv.server_addr();
@@ -275,4 +285,29 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn coverage_args(tmpdir: &Path) -> PathBuf {
+    fn generated(tmpdir: &Path, prefix: &str) -> String {
+        let res = format!(
+            "{prefix}{}.profraw",
+            tmpdir.file_name().and_then(|s| s.to_str()).unwrap()
+        );
+        res
+    }
+
+    let prefix = env::var_os("WASM_BINDGEN_UNSTABLE_TEST_PROFRAW_PREFIX")
+        .map(|s| s.to_str().unwrap().to_string())
+        .unwrap_or_default();
+
+    match env::var_os("WASM_BINDGEN_UNSTABLE_TEST_PROFRAW_OUT") {
+        Some(s) => {
+            let mut buf = PathBuf::from(s);
+            if buf.is_dir() {
+                buf.push(generated(tmpdir, &prefix));
+            }
+            buf
+        }
+        None => PathBuf::from(generated(tmpdir, &prefix)),
+    }
 }

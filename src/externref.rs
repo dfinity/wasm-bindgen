@@ -1,8 +1,9 @@
 use crate::JsValue;
-use std::cell::Cell;
-use std::slice;
-use std::vec::Vec;
-use std::cmp::max;
+
+use alloc::slice;
+use alloc::vec::Vec;
+use core::cell::Cell;
+use core::cmp::max;
 
 pub unsafe fn __wbindgen_externref_table_grow(_delta: usize) -> i32 { unimplemented!("__wbindgen_externref_table_grow") }
 pub unsafe fn __wbindgen_externref_table_set_null(_idx: usize) -> () { unimplemented!("__wbindgen_externref_table_set_null") }
@@ -93,10 +94,19 @@ impl Slab {
 }
 
 fn internal_error(msg: &str) -> ! {
-    if cfg!(debug_assertions) {
-        super::throw_str(msg)
-    } else {
-        std::process::abort()
+    cfg_if::cfg_if! {
+        if #[cfg(debug_assertions)] {
+            super::throw_str(msg)
+        } else if #[cfg(feature = "std")] {
+            std::process::abort();
+        } else if #[cfg(all(
+            target_arch = "wasm32",
+            target_os = "unknown"
+        ))] {
+            core::arch::wasm32::unreachable();
+        } else {
+            unreachable!()
+        }
     }
 }
 
@@ -155,7 +165,3 @@ pub unsafe extern "C" fn __externref_heap_live_count() -> u32 {
         })
         .unwrap_or_else(|_| internal_error("tls access failure"))
 }
-
-// see comment in module above this in `link_mem_intrinsics`
-#[inline(never)]
-pub fn link_intrinsics() {}

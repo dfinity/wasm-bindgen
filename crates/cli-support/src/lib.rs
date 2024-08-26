@@ -66,7 +66,7 @@ enum OutputMode {
     Bundler { browser_only: bool },
     Web,
     NoModules { global: String },
-    Node { experimental_modules: bool },
+    Node { module: bool },
     Deno,
 }
 
@@ -154,23 +154,16 @@ impl Bindgen {
 
     pub fn nodejs(&mut self, node: bool) -> Result<&mut Bindgen, Error> {
         if node {
-            self.switch_mode(
-                OutputMode::Node {
-                    experimental_modules: false,
-                },
-                "--target nodejs",
-            )?;
+            self.switch_mode(OutputMode::Node { module: false }, "--target nodejs")?;
         }
         Ok(self)
     }
 
-    pub fn nodejs_experimental_modules(&mut self, node: bool) -> Result<&mut Bindgen, Error> {
+    pub fn nodejs_module(&mut self, node: bool) -> Result<&mut Bindgen, Error> {
         if node {
             self.switch_mode(
-                OutputMode::Node {
-                    experimental_modules: true,
-                },
-                "--nodejs-experimental-modules",
+                OutputMode::Node { module: true },
+                "--target experimental-nodejs-module",
             )?;
         }
         Ok(self)
@@ -327,6 +320,13 @@ impl Bindgen {
                 .context("failed getting Wasm module")?,
         };
 
+        // Check that no exported symbol is called "default" if we target web.
+        if matches!(self.mode, OutputMode::Web)
+            && module.exports.iter().any(|export| export.name == "default")
+        {
+            bail!("exported symbol \"default\" not allowed for --target web")
+        }
+
         let thread_count = self
             .threads
             .run(&mut module)
@@ -368,13 +368,7 @@ impl Bindgen {
         // auxiliary section for all sorts of miscellaneous information and
         // features #[wasm_bindgen] supports that aren't covered by wasm
         // interface types.
-        wit::process(
-            &mut module,
-            programs,
-            self.externref,
-            thread_count,
-            self.emit_start,
-        )?;
+        wit::process(self, &mut module, programs, thread_count)?;
 
         // Now that we've got type information from the webidl processing pass,
         // touch up the output of rustc to insert externref shims where necessary.
@@ -541,20 +535,9 @@ impl OutputMode {
             self,
             OutputMode::Bundler { .. }
                 | OutputMode::Web
-                | OutputMode::Node {
-                    experimental_modules: true,
-                }
+                | OutputMode::Node { module: true }
                 | OutputMode::Deno
         )
-    }
-
-    fn nodejs_experimental_modules(&self) -> bool {
-        match self {
-            OutputMode::Node {
-                experimental_modules,
-            } => *experimental_modules,
-            _ => false,
-        }
     }
 
     fn nodejs(&self) -> bool {
@@ -572,10 +555,7 @@ impl OutputMode {
     fn esm_integration(&self) -> bool {
         matches!(
             self,
-            OutputMode::Bundler { .. }
-                | OutputMode::Node {
-                    experimental_modules: true,
-                }
+            OutputMode::Bundler { .. } | OutputMode::Node { module: true }
         )
     }
 }
@@ -613,14 +593,6 @@ impl Output {
 
     pub fn start(&self) -> Option<&String> {
         self.generated.start.as_ref()
-    }
-
-    pub fn snippets(&self) -> &HashMap<String, Vec<String>> {
-        &self.generated.snippets
-    }
-
-    pub fn local_modules(&self) -> &HashMap<String, String> {
-        &self.generated.local_modules
     }
 
     pub fn npm_dependencies(&self) -> &HashMap<String, (PathBuf, String)> {
@@ -680,11 +652,7 @@ impl Output {
 
         // And now that we've got all our JS and TypeScript, actually write it
         // out to the filesystem.
-        let extension = if gen.mode.nodejs_experimental_modules() {
-            "mjs"
-        } else {
-            "js"
-        };
+        let extension = "js";
 
         fn write<P, C>(path: P, contents: C) -> Result<(), anyhow::Error>
         where
@@ -702,17 +670,30 @@ impl Output {
 
             let start = gen.start.as_deref().unwrap_or("");
 
-            write(
-                &js_path,
-                format!(
-                    "import * as wasm from \"./{wasm_name}.wasm\";
+            if matches!(gen.mode, OutputMode::Node { .. }) {
+                write(
+                    &js_path,
+                    format!(
+                        "
+import {{ __wbg_set_wasm }} from \"./{js_name}\";
+{start}
+__wbg_set_wasm(wasm);
+export * from \"./{js_name}\";",
+                    ),
+                )?;
+            } else {
+                write(
+                    &js_path,
+                    format!(
+                        "
+import * as wasm from \"./{wasm_name}.wasm\";
 import {{ __wbg_set_wasm }} from \"./{js_name}\";
 __wbg_set_wasm(wasm);
 export * from \"./{js_name}\";
 {start}"
-                ),
-            )?;
-
+                    ),
+                )?;
+            }
             write(out_dir.join(&js_name), reset_indentation(&gen.js))?;
         } else {
             write(&js_path, reset_indentation(&gen.js))?;

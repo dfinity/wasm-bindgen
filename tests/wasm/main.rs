@@ -14,6 +14,8 @@ extern crate serde_derive;
 
 use wasm_bindgen::prelude::*;
 
+#[path = "3944.rs"]
+pub mod _3944;
 pub mod api;
 pub mod arg_names;
 pub mod async_vecs;
@@ -29,7 +31,9 @@ pub mod enums;
 #[path = "final.rs"]
 pub mod final_;
 pub mod futures;
+pub mod gc;
 pub mod getters_and_setters;
+pub mod ignore;
 pub mod import_class;
 pub mod imports;
 pub mod intrinsics;
@@ -43,7 +47,6 @@ pub mod no_shims;
 pub mod node;
 pub mod option;
 pub mod optional_primitives;
-pub mod owned;
 pub mod result;
 pub mod result_jserror;
 pub mod rethrow;

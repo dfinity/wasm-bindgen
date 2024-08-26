@@ -25,12 +25,13 @@ use crate::generator::{
 use crate::idl_type::ToIdlType;
 use crate::traverse::TraverseType;
 use crate::util::{
-    camel_case_ident, is_structural, is_type_unstable, read_dir, shouty_snake_case_ident,
-    snake_case_ident, throws, webidl_const_v_to_backend_const_v, TypePosition,
+    camel_case_ident, get_rust_deprecated, getter_throws, is_structural, is_type_unstable,
+    optional_return_ty, read_dir, setter_throws, shouty_snake_case_ident, snake_case_ident, throws,
+    webidl_const_v_to_backend_const_v, TypePosition,
 };
 use anyhow::Context;
 use anyhow::Result;
-use idl_type::IdlType;
+use idl_type::{IdentifierType, IdlType};
 use proc_macro2::{Ident, TokenStream};
 use quote::ToTokens;
 use sourcefile::SourceFile;
@@ -297,7 +298,17 @@ impl<'src> FirstPassRecord<'src> {
 
         let mut fields = Vec::new();
 
-        if !self.append_dictionary_members(&js_name, &mut fields, unstable, unstable_types) {
+        let deprecated = data
+            .definition
+            .and_then(|d| get_rust_deprecated(&d.attributes));
+
+        if !self.append_dictionary_members(
+            &js_name,
+            &mut fields,
+            unstable,
+            unstable_types,
+            &deprecated,
+        ) {
             return;
         }
 
@@ -306,6 +317,7 @@ impl<'src> FirstPassRecord<'src> {
             js_name,
             fields,
             unstable,
+            deprecated,
         }
         .generate(options)
         .to_tokens(&mut program.tokens);
@@ -317,6 +329,7 @@ impl<'src> FirstPassRecord<'src> {
         dst: &mut Vec<DictionaryField>,
         unstable: bool,
         unstable_types: &HashSet<Identifier>,
+        parent_deprecated: &Option<Option<String>>,
     ) -> bool {
         let dict_data = &self.dictionaries[&dict];
         let definition = dict_data.definition.unwrap();
@@ -325,7 +338,13 @@ impl<'src> FirstPassRecord<'src> {
         // > such that inherited dictionary members are ordered before
         // > non-inherited members ...
         if let Some(parent) = &definition.inheritance {
-            if !self.append_dictionary_members(parent.identifier.0, dst, unstable, unstable_types) {
+            if !self.append_dictionary_members(
+                parent.identifier.0,
+                dst,
+                unstable,
+                unstable_types,
+                parent_deprecated,
+            ) {
                 return false;
             }
         }
@@ -344,7 +363,7 @@ impl<'src> FirstPassRecord<'src> {
                 .zip(iter::repeat(unstable || d.stability.is_unstable()))
         });
         for (member, unstable) in members.zip(iter::repeat(unstable)).chain(partials) {
-            match self.dictionary_field(member, unstable, unstable_types) {
+            match self.dictionary_field(member, unstable, unstable_types, parent_deprecated) {
                 Some(f) => dst.push(f),
                 None => {
                     log::warn!(
@@ -371,6 +390,7 @@ impl<'src> FirstPassRecord<'src> {
         field: &'src DictionaryMember<'src>,
         unstable: bool,
         unstable_types: &HashSet<Identifier>,
+        parent_deprecated: &Option<Option<String>>,
     ) -> Option<DictionaryField> {
         let unstable_override = match unstable {
             true => true,
@@ -383,9 +403,15 @@ impl<'src> FirstPassRecord<'src> {
             idl_type::IdlType::Nullable(ty) => match **ty {
                 idl_type::IdlType::Any => true,
                 IdlType::FrozenArray(ref _idl_type) | IdlType::Sequence(ref _idl_type) => true,
-                idl_type::IdlType::Union(ref types) => !types
-                    .iter()
-                    .all(|idl_type| matches!(idl_type, IdlType::Interface(..))),
+                idl_type::IdlType::Union(ref types) => !types.iter().all(|idl_type| {
+                    matches!(
+                        idl_type,
+                        IdlType::Identifier {
+                            ty: IdentifierType::Interface(..),
+                            ..
+                        }
+                    )
+                }),
                 _ => false,
             },
             _ => false,
@@ -395,6 +421,12 @@ impl<'src> FirstPassRecord<'src> {
         let ty = idl_type
             .to_syn_type(TypePosition::Argument)
             .unwrap_or(None)?;
+
+        let mut return_ty = idl_type.to_syn_type(TypePosition::Return).unwrap().unwrap();
+
+        if field.required.is_none() {
+            return_ty = optional_return_ty(return_ty);
+        }
 
         // Slice types aren't supported because they don't implement
         // `Into<JsValue>`
@@ -434,11 +466,14 @@ impl<'src> FirstPassRecord<'src> {
 
         Some(DictionaryField {
             required: field.required.is_some(),
-            name: rust_ident(&snake_case_ident(field.identifier.0)),
+            name: snake_case_ident(field.identifier.0),
             js_name: field.identifier.0.to_string(),
             ty,
+            return_ty,
             is_js_value_ref_option_type,
             unstable: unstable_override,
+            deprecated: get_rust_deprecated(&field.attributes)
+                .or_else(|| parent_deprecated.clone()),
         })
     }
 
@@ -499,11 +534,11 @@ impl<'src> FirstPassRecord<'src> {
     }
 
     fn append_ns_operation(
-        &self,
-        functions: &mut Vec<Function>,
-        js_name: &'src str,
-        id: &OperationId<'src>,
-        data: &OperationData<'src>,
+        &'src self,
+        functions: &mut Vec<Function<'src>>,
+        js_name: &str,
+        id: &'src OperationId<'src>,
+        data: &'src OperationData<'src>,
     ) {
         match id {
             OperationId::Operation(Some(_)) => {}
@@ -597,6 +632,7 @@ impl<'src> FirstPassRecord<'src> {
                 member.identifier.0.to_string(),
                 &member.attributes,
                 data.definition_attributes,
+                &js_name,
                 unstable,
             );
         }
@@ -630,6 +666,7 @@ impl<'src> FirstPassRecord<'src> {
                     member.identifier.0.to_string(),
                     &member.attributes,
                     data.definition_attributes,
+                    &js_name,
                     unstable,
                 );
             }
@@ -670,6 +707,7 @@ impl<'src> FirstPassRecord<'src> {
         js_name: String,
         attrs: &'src Option<ExtendedAttributeList<'src>>,
         container_attrs: Option<&'src ExtendedAttributeList<'src>>,
+        parent_js_name: &str,
         unstable: bool,
     ) {
         use weedle::interface::StringifierOrInheritOrStatic::*;
@@ -684,6 +722,7 @@ impl<'src> FirstPassRecord<'src> {
         let structural = is_structural(attrs.as_ref(), container_attrs);
 
         let catch = throws(attrs);
+        let deprecated: Option<Option<String>> = get_rust_deprecated(attrs);
 
         let ty = type_
             .type_
@@ -697,9 +736,10 @@ impl<'src> FirstPassRecord<'src> {
             attributes.push(InterfaceAttribute {
                 is_static,
                 structural,
-                catch,
+                catch: catch || getter_throws(parent_js_name, &js_name, attrs),
                 ty,
                 js_name: js_name.clone(),
+                deprecated: deprecated.clone(),
                 kind,
                 unstable,
             });
@@ -718,9 +758,10 @@ impl<'src> FirstPassRecord<'src> {
                 attributes.push(InterfaceAttribute {
                     is_static,
                     structural,
-                    catch,
+                    catch: catch || setter_throws(parent_js_name, &js_name, attrs),
                     ty,
                     js_name,
+                    deprecated,
                     kind,
                     unstable,
                 });
@@ -729,12 +770,12 @@ impl<'src> FirstPassRecord<'src> {
     }
 
     fn member_operation(
-        &self,
+        &'src self,
         type_name: &str,
-        methods: &mut Vec<InterfaceMethod>,
+        methods: &mut Vec<InterfaceMethod<'src>>,
         data: &InterfaceData<'src>,
-        id: &OperationId<'src>,
-        op_data: &OperationData<'src>,
+        id: &'src OperationId<'src>,
+        op_data: &'src OperationData<'src>,
         unstable_types: &HashSet<Identifier>,
     ) {
         let attrs = data.definition_attributes;
@@ -748,7 +789,18 @@ impl<'src> FirstPassRecord<'src> {
             unstable,
             unstable_types,
         ) {
-            methods.push(method);
+            if !methods.iter().any(|old_method| {
+                old_method.variadic == method.variadic
+                    && old_method.js_name == method.js_name
+                    && old_method.variadic_type == method.variadic_type
+                    && old_method
+                        .arguments
+                        .iter()
+                        .map(|(_, idl, wb)| (idl.orig(), wb))
+                        .eq(method.arguments.iter().map(|(_, idl, wb)| (idl.orig(), wb)))
+            }) {
+                methods.push(method);
+            }
         }
     }
 
@@ -775,14 +827,21 @@ impl<'src> FirstPassRecord<'src> {
 
                     fields.push(DictionaryField {
                         required: false,
-                        name: rust_ident(&snake_case_ident(identifier)),
+                        name: snake_case_ident(identifier),
                         js_name: identifier.to_string(),
-                        ty: idl_type::IdlType::Callback
+                        ty: idl_type::IdentifierType::Callback
                             .to_syn_type(pos)
                             .unwrap()
                             .unwrap(),
+                        return_ty: optional_return_ty(
+                            idl_type::IdentifierType::Callback
+                                .to_syn_type(TypePosition::Return)
+                                .unwrap()
+                                .unwrap(),
+                        ),
                         is_js_value_ref_option_type: false,
                         unstable: false,
+                        deprecated: get_rust_deprecated(&item.definition.attributes),
                     })
                 }
                 _ => {
@@ -799,6 +858,7 @@ impl<'src> FirstPassRecord<'src> {
             js_name,
             fields,
             unstable: false,
+            deprecated: None,
         }
         .generate(options)
         .to_tokens(&mut program.tokens);
@@ -878,7 +938,7 @@ pub fn generate(from: &Path, to: &Path, options: Options) -> Result<String> {
             if path.extension() != Some(OsStr::new("webidl")) {
                 continue;
             }
-            source = source
+            source
                 .add_file(&path)
                 .with_context(|| format!("reading contents of file \"{}\"", path.display()))?;
         }
@@ -890,7 +950,7 @@ pub fn generate(from: &Path, to: &Path, options: Options) -> Result<String> {
         // run rustfmt on the generated file - really handy for debugging
         let result = Command::new("rustfmt")
             .arg("--edition")
-            .arg("2018")
+            .arg("2021")
             .args(paths)
             .status()
             .context("rustfmt failed")?;

@@ -3,7 +3,7 @@ use anyhow::{bail, format_err, Context, Error};
 use log::{debug, warn};
 use rouille::url::Url;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, json, Map, Value as Json};
+use serde_json::{json, Map, Value as Json};
 use std::env;
 use std::fs::File;
 use std::io::{self, Read};
@@ -71,7 +71,10 @@ pub fn run(server: &SocketAddr, shell: &Shell, timeout: u64) -> Result<(), Error
             let mut cmd = Command::new(path);
             cmd.args(args).arg(format!("--port={}", driver_addr.port()));
             let mut child = BackgroundChild::spawn(path, &mut cmd, shell)?;
-            drop_log = Box::new(move || child.print_stdio_on_drop = false);
+            drop_log = Box::new(move || {
+                let _ = &child;
+                child.print_stdio_on_drop = false;
+            });
 
             // Wait for the driver to come online and bind its port before we try to
             // connect to it.
@@ -343,7 +346,7 @@ enum Method<'a> {
 }
 
 // Below here is a bunch of details of the WebDriver protocol implementation.
-// I'm not too too familiar with them myself, but these seem to work! I mostly
+// I'm not too familiar with them myself, but these seem to work! I mostly
 // copied the `webdriver-client` crate when writing the below bindings.
 
 impl Client {

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use syn::ext::IdentExt;
 
 use crate::ast;
 use crate::Diagnostic;
@@ -51,6 +52,7 @@ struct LocalFile {
     path: PathBuf,
     definition: Span,
     new_identifier: String,
+    linked_module: bool,
 }
 
 impl Interner {
@@ -84,7 +86,12 @@ impl Interner {
     ///
     /// Note that repeated invocations of this function will be memoized, so the
     /// same `id` will always return the same resulting unique `id`.
-    fn resolve_import_module(&self, id: &str, span: Span) -> Result<ImportModule, Diagnostic> {
+    fn resolve_import_module(
+        &self,
+        id: &str,
+        span: Span,
+        linked_module: bool,
+    ) -> Result<ImportModule, Diagnostic> {
         let mut files = self.files.borrow_mut();
         if let Some(file) = files.get(id) {
             return Ok(ImportModule::Named(self.intern_str(&file.new_identifier)));
@@ -106,10 +113,11 @@ impl Interner {
             path,
             definition: span,
             new_identifier,
+            linked_module,
         };
         files.insert(id.to_string(), file);
         drop(files);
-        self.resolve_import_module(id, span)
+        self.resolve_import_module(id, span, linked_module)
     }
 
     fn unique_crate_identifier(&self) -> String {
@@ -168,6 +176,7 @@ fn shared_program<'a>(
                     .map(|s| LocalModule {
                         identifier: intern.intern_str(&file.new_identifier),
                         contents: intern.intern_str(&s),
+                        linked_module: file.linked_module,
                     })
                     .map_err(|e| {
                         let msg = format!("failed to read file `{}`: {}", file.path.display(), e);
@@ -212,7 +221,7 @@ fn shared_function<'a>(func: &'a ast::Function, _intern: &'a Interner) -> Functi
         .enumerate()
         .map(|(idx, arg)| {
             if let syn::Pat::Ident(x) = &*arg.pat {
-                return x.ident.to_string();
+                return x.ident.unraw().to_string();
             }
             format!("arg{}", idx)
         })
@@ -253,7 +262,7 @@ fn shared_import<'a>(i: &'a ast::Import, intern: &'a Interner) -> Result<Import<
         module: i
             .module
             .as_ref()
-            .map(|m| shared_module(m, intern))
+            .map(|m| shared_module(m, intern, false))
             .transpose()?,
         js_namespace: i.js_namespace.clone(),
         kind: shared_import_kind(&i.kind, intern)?,
@@ -273,7 +282,7 @@ fn shared_linked_module<'a>(
     intern: &'a Interner,
 ) -> Result<LinkedModule<'a>, Diagnostic> {
     Ok(LinkedModule {
-        module: shared_module(i, intern)?,
+        module: shared_module(i, intern, true)?,
         link_function_name: intern.intern_str(name),
     })
 }
@@ -281,9 +290,12 @@ fn shared_linked_module<'a>(
 fn shared_module<'a>(
     m: &'a ast::ImportModule,
     intern: &'a Interner,
+    linked_module: bool,
 ) -> Result<ImportModule<'a>, Diagnostic> {
     Ok(match m {
-        ast::ImportModule::Named(m, span) => intern.resolve_import_module(m, *span)?,
+        ast::ImportModule::Named(m, span) => {
+            intern.resolve_import_module(m, *span, linked_module)?
+        }
         ast::ImportModule::RawNamed(m, _span) => ImportModule::RawNamed(intern.intern_str(m)),
         ast::ImportModule::Inline(idx, _) => ImportModule::Inline(*idx as u32),
     })
@@ -296,6 +308,7 @@ fn shared_import_kind<'a>(
     Ok(match i {
         ast::ImportKind::Function(f) => ImportKind::Function(shared_import_function(f, intern)?),
         ast::ImportKind::Static(f) => ImportKind::Static(shared_import_static(f, intern)),
+        ast::ImportKind::String(f) => ImportKind::String(shared_import_string(f, intern)),
         ast::ImportKind::Type(f) => ImportKind::Type(shared_import_type(f, intern)),
         ast::ImportKind::Enum(f) => ImportKind::Enum(shared_import_enum(f, intern)),
     })
@@ -331,6 +344,13 @@ fn shared_import_static<'a>(i: &'a ast::ImportStatic, intern: &'a Interner) -> I
     }
 }
 
+fn shared_import_string<'a>(i: &'a ast::ImportString, intern: &'a Interner) -> ImportString<'a> {
+    ImportString {
+        shim: intern.intern(&i.shim),
+        string: &i.string,
+    }
+}
+
 fn shared_import_type<'a>(i: &'a ast::ImportType, intern: &'a Interner) -> ImportType<'a> {
     ImportType {
         name: &i.js_name,
@@ -339,8 +359,8 @@ fn shared_import_type<'a>(i: &'a ast::ImportType, intern: &'a Interner) -> Impor
     }
 }
 
-fn shared_import_enum<'a>(_i: &'a ast::ImportEnum, _intern: &'a Interner) -> ImportEnum {
-    ImportEnum {}
+fn shared_import_enum<'a>(_i: &'a ast::StringEnum, _intern: &'a Interner) -> StringEnum {
+    StringEnum {}
 }
 
 fn shared_struct<'a>(s: &'a ast::Struct, intern: &'a Interner) -> Struct<'a> {
@@ -437,7 +457,7 @@ impl Encode for u32 {
 
 impl Encode for usize {
     fn encode(&self, dst: &mut Encoder) {
-        assert!(*self <= u32::max_value() as usize);
+        assert!(*self <= u32::MAX as usize);
         (*self as u32).encode(dst);
     }
 }

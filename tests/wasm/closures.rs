@@ -433,7 +433,7 @@ fn drop_drops() {
     }
     let a = A;
     let x: Closure<dyn Fn()> = Closure::new(move || {
-        let _ = a;
+        let _ = &a;
     });
     drop(x);
     unsafe {
@@ -473,7 +473,7 @@ fn drop_during_call_ok() {
         assert_eq!(x, 3);
 
         // make sure `A` is bound to our closure environment.
-        drop(&a);
+        let _a = &a;
         unsafe {
             assert!(!HIT);
         }
